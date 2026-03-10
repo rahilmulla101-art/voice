@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech Emotion Detector</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: "Poppins", sans-serif;
+            background: linear-gradient(135deg, #1e1e2f, #282846, #1a1a27);
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 550px;
+            background: rgba(255, 255, 255, 0.07);
+            padding: 35px;
+            border-radius: 18px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        .btn {
+            padding: 14px 25px;
+            border: none;
+            border-radius: 12px;
+            margin: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: 0.25s;
+        }
+
+        #recordBtn {
+            background: #00c853;
+            color: #fff;
+            box-shadow: 0px 4px 12px rgba(0, 200, 83, 0.5);
+        }
+
+        #recordBtn:hover { background: #00e676; }
+
+        #stopBtn {
+            background: #d50000;
+            color: #fff;
+            box-shadow: 0px 4px 12px rgba(213, 0, 0, 0.5);
+        }
+
+        #stopBtn:disabled {
+            background: #5f5f5f;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+
+        #resultBox {
+            margin-top: 25px;
+            padding: 18px;
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 14px;
+            display: none;
+            animation: fadeIn 0.4s ease-in-out;
+        }
+
+        #emotionLabel {
+            font-size: 22px;
+            font-weight: 600;
+        }
+
+        #player {
+            margin-top: 20px;
+            width: 100%;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .wave {
+            margin-top: 20px;
+            height: 60px;
+            display: flex;
+            justify-content: center;
+            visibility: hidden;
+        }
+
+        .bar {
+            width: 6px;
+            height: 20px;
+            margin: 0 4px;
+            background: #00e676;
+            border-radius: 6px;
+            animation: sound 0.6s infinite;
+        }
+
+        .bar:nth-child(1) { animation-delay: 0s; }
+        .bar:nth-child(2) { animation-delay: 0.2s; }
+        .bar:nth-child(3) { animation-delay: 0.4s; }
+        .bar:nth-child(4) { animation-delay: 0.3s; }
+        .bar:nth-child(5) { animation-delay: 0.1s; }
+
+        @keyframes sound {
+            0% { height: 20px; }
+            50% { height: 60px; }
+            100% { height: 20px; }
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+
+        <h1>🎤 Speech Emotion Detector</h1>
+
+        <button id="recordBtn" class="btn">🎙 Start Recording</button>
+        <button id="stopBtn" class="btn" disabled>⏹ Stop</button>
+
+        <div class="wave" id="waveAnim">
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+        </div>
+
+        <div id="resultBox">
+            <div id="emotionLabel">Predicted Emotion: --</div>
+        </div>
+
+        <audio id="player" controls style="display:none;"></audio>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+
+        const recordBtn = document.getElementById("recordBtn");
+        const stopBtn = document.getElementById("stopBtn");
+        const waveAnim = document.getElementById("waveAnim");
+        const resultBox = document.getElementById("resultBox");
+        const emotionLabel = document.getElementById("emotionLabel");
+
+        recordBtn.onclick = async () => {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+
+            audioChunks = [];
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+
+            mediaRecorder.onstop = async () => {
+                const wavBlob = await convertToWavBlob(audioChunks);
+                uploadAudio(wavBlob);
+
+                const url = URL.createObjectURL(wavBlob);
+                const player = document.getElementById("player");
+                player.src = url;
+                player.style.display = "block";
+
+                waveAnim.style.visibility = "hidden";
+            };
+
+            mediaRecorder.start();
+            waveAnim.style.visibility = "visible";
+
+            recordBtn.disabled = true;
+            stopBtn.disabled = false;
+        };
+
+        stopBtn.onclick = () => {
+            mediaRecorder.stop();
+            recordBtn.disabled = false;
+            stopBtn.disabled = true;
+        };
+
+        async function convertToWavBlob(chunks) {
+            const blob = new Blob(chunks, { type: "audio/webm" });
+            const arrayBuffer = await blob.arrayBuffer();
+            const audioCtx = new AudioContext();
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+            const wavBuffer = audioBufferToWav(audioBuffer);
+            return new Blob([wavBuffer], { type: "audio/wav" });
+        }
+
+        function audioBufferToWav(buffer) {
+            const numOfChan = buffer.numberOfChannels;
+            const length = buffer.length * numOfChan * 2;
+            const result = new DataView(new ArrayBuffer(44 + length));
+            let offset = 0;
+            const writeString = (s) => { for (let i = 0; i < s.length; i++) result.setUint8(offset + i, s.charCodeAt(i)); offset += s.length; };
+
+            writeString("RIFF"); result.setUint32(offset, 36 + length, true); offset += 4;
+            writeString("WAVEfmt "); result.setUint32(offset, 16, true); offset += 4;
+            result.setUint16(offset, 1, true); offset += 2;
+            result.setUint16(offset, numOfChan, true); offset += 2;
+            result.setUint32(offset, buffer.sampleRate, true); offset += 4;
+            result.setUint32(offset, buffer.sampleRate * numOfChan * 2, true); offset += 4;
+            result.setUint16(offset, numOfChan * 2, true); offset += 2;
+            result.setUint16(offset, 16, true); offset += 2;
+
+            writeString("data"); result.setUint32(offset, length, true); offset += 4;
+
+            for (let ch = 0; ch < numOfChan; ch++) {
+                const data = buffer.getChannelData(ch);
+                let pos = offset;
+                for (let i = 0; i < data.length; i++) {
+                    const sample = Math.max(-1, Math.min(1, data[i]));
+                    result.setInt16(pos, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                    pos += 2;
+                }
+                offset += data.length * 2;
+            }
+            return result.buffer;
+        }
+
+        async function uploadAudio(wavBlob) {
+            const formData = new FormData();
+            formData.append("audio_data", wavBlob, "voice.wav");
+
+            const response = await fetch("/predict", {
+                method: "POST",
+                body: formData
+            });
+
+            const data = await response.json();
+
+            resultBox.style.display = "block";
+            emotionLabel.innerText = "Predicted Emotion: " + data.emotion;
+        }
+    </script>
+</body>
+</html>
